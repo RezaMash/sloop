@@ -20,6 +20,7 @@ import (
 
 type Config struct {
 	RootPath                 string
+	StorageType              string
 	ConfigPartitionDuration  time.Duration
 	BadgerMaxTableSize       int64
 	BadgerKeepL0InMemory     bool
@@ -38,9 +39,19 @@ type Config struct {
 	BadgerVLogTruncate       bool
 }
 
-func OpenStore(factory badgerwrap.Factory, config *Config) (badgerwrap.DB, error) {
+func OpenStore(config *Config) (badgerwrap.DB, error) {
 	if config.ConfigPartitionDuration != time.Hour && config.ConfigPartitionDuration != 24*time.Hour {
 		return nil, fmt.Errorf("Only hour and day partitionDurations are supported")
+	}
+
+	var factory badgerwrap.Factory
+	switch config.StorageType {
+	case "badger":
+		factory = &badgerwrap.BadgerFactory{}
+	case "memory":
+		factory = &MemFactory{}
+	default:
+		return nil, fmt.Errorf("Unknown storage type: %v", config.StorageType)
 	}
 
 	err := os.MkdirAll(config.RootPath, 0755)

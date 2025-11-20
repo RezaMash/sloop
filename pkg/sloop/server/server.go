@@ -54,11 +54,10 @@ func RealMain() error {
 	// The channel is owned by this function, and no external code should close this!
 	kubeWatchChan := make(chan typed.KubeWatchResult, 1000)
 
-	factory := &badgerwrap.BadgerFactory{}
-
 	storeRootWithKubeContext := path.Join(conf.StoreRoot, kubeContext)
 	storeConfig := &untyped.Config{
 		RootPath:                 storeRootWithKubeContext,
+		StorageType:              conf.StorageType,
 		ConfigPartitionDuration:  time.Duration(1) * time.Hour,
 		BadgerMaxTableSize:       conf.BadgerMaxTableSize,
 		BadgerKeepL0InMemory:     conf.BadgerKeepL0InMemory,
@@ -76,7 +75,7 @@ func RealMain() error {
 		BadgerVLogTruncate:       conf.BadgerVLogTruncate,
 		BadgerDetailLogEnabled:   conf.BadgerDetailLogEnabled,
 	}
-	db, err := untyped.OpenStore(factory, storeConfig)
+	db, err := untyped.OpenStore(storeConfig)
 	if err != nil {
 		return errors.Wrap(err, "failed to init untyped store")
 	}

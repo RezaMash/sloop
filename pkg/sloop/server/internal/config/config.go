@@ -78,10 +78,12 @@ type SloopConfig struct {
 	EnableGranularMetrics    bool          `json:"enableGranularMetrics"`
 	PrivilegedAccess         bool          `json:"PrivilegedAccess"`
 	BadgerDetailLogEnabled   bool          `json:"badgerDetailLogEnabled"`
+	StorageType string `json:"storageType"`
 }
 
 func registerFlags(fs *flag.FlagSet, config *SloopConfig) {
 	fs.StringVar(&config.ConfigFile, "config", config.ConfigFile, "Path to a yaml or json config file")
+	fs.StringVar(&config.StorageType, "storage-type", config.StorageType, "Storage type to use. Can be 'badger' or 'memory'")
 	fs.BoolVar(&config.DisableKubeWatcher, "disable-kube-watch", config.DisableKubeWatcher, "Turn off kubernetes watch")
 	fs.DurationVar(&config.KubeWatchResyncInterval, "kube-watch-resync-interval", config.KubeWatchResyncInterval,
 		"OPTIONAL: Kubernetes watch resync interval")
@@ -179,6 +181,7 @@ func getDefaultConfig() *SloopConfig {
 		PrivilegedAccess:         true,
 		BadgerDetailLogEnabled:   false,
 		ExclusionRules:           map[string][]any{},
+		StorageType:              "badger",
 	}
 	return &defaultConfig
 }
