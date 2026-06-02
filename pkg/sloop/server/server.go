@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -96,18 +97,33 @@ func RealMain() error {
 	processor := processing.NewProcessing(kubeWatchChan, tables, conf.KeepMinorNodeUpdates, conf.MaxLookback)
 	processor.Start()
 
-	// Real kubernetes watcher
+	// Real kubernetes watcher.
+	//
+	// Setting up the watcher (especially CRD informers on clusters with many CRDs) can
+	// take a while during the initial sync. We start it in a background goroutine so that
+	// the webserver below can bind and start serving /healthz immediately, instead of the
+	// process appearing unhealthy (and being killed by liveness/startup probes) while the
+	// watcher is still coming up. Access to kubeWatcherSource is guarded by
+	// kubeWatcherMu because shutdown reads it from the main goroutine.
 	var kubeWatcherSource ingress.KubeWatcher
+	var kubeWatcherMu sync.Mutex
 	if !conf.DisableKubeWatcher {
-		kubeClient, err := ingress.MakeKubernetesClient(conf.ApiServerHost, kubeContext, conf.PrivilegedAccess)
-		if err != nil {
-			return errors.Wrap(err, "failed to create kubernetes client")
-		}
+		go func() {
+			kubeClient, err := ingress.MakeKubernetesClient(conf.ApiServerHost, kubeContext, conf.PrivilegedAccess)
+			if err != nil {
+				glog.Errorf("failed to create kubernetes client: %v", err)
+				return
+			}
 
-		kubeWatcherSource, err = ingress.NewKubeWatcherSource(kubeClient, kubeWatchChan, conf.KubeWatchResyncInterval, conf.WatchCrds, conf.CrdRefreshInterval, conf.ApiServerHost, kubeContext, conf.EnableGranularMetrics, conf.ExclusionRules)
-		if err != nil {
-			return errors.Wrap(err, "failed to initialize kubeWatcher")
-		}
+			kw, err := ingress.NewKubeWatcherSource(kubeClient, kubeWatchChan, conf.KubeWatchResyncInterval, conf.WatchCrds, conf.CrdRefreshInterval, conf.ApiServerHost, kubeContext, conf.EnableGranularMetrics, conf.ExclusionRules)
+			if err != nil {
+				glog.Errorf("failed to initialize kubeWatcher: %v", err)
+				return
+			}
+			kubeWatcherMu.Lock()
+			kubeWatcherSource = kw
+			kubeWatcherMu.Unlock()
+		}()
 	}
 
 	// File playback
@@ -175,8 +191,11 @@ func RealMain() error {
 	// 1. Shut down ingress so that it stops emitting events
 	// 2. Close the input channel which signals processing to finish work
 	// 3. Wait on processor to tell us all work is complete.  Store will not change after that
-	if kubeWatcherSource != nil {
-		kubeWatcherSource.Stop()
+	kubeWatcherMu.Lock()
+	kw := kubeWatcherSource
+	kubeWatcherMu.Unlock()
+	if kw != nil {
+		kw.Stop()
 	}
 	close(kubeWatchChan)
 	processor.Wait()

@@ -345,15 +345,24 @@ func (i *kubeWatcherImpl) processUpdate(kind string, obj interface{}, watchResul
 }
 
 func (i *kubeWatcherImpl) writeToOutChan(watchResult *typed.KubeWatchResult) {
-	// We need to ensure that no messages are written to outChan after stop is called
-	// Kube watch library has a way to tell it to stop, but no way to know it is complete
-	// Use a lock around output channel for this purpose
+	// We need to ensure that no messages are written to outChan after stop is called.
+	// The lock only guards the stopped check; we must NOT hold it across the channel
+	// send, otherwise a full channel would block here while holding i.protection, which
+	// deadlocks any other path that needs the lock (e.g. starting CRD informers during
+	// the initial sync of a cluster with many CRDs).
 	i.protection.Lock()
-	defer i.protection.Unlock()
-	if i.stopped {
+	stopped := i.stopped
+	i.protection.Unlock()
+	if stopped {
 		return
 	}
-	i.outchan <- *watchResult // WARNING - if this channel gets full, this push will block while holding i.protection in a locked state
+
+	// Send without holding the lock. Select on stopChan so that the send unblocks if the
+	// watcher is stopped while the channel is full, instead of blocking forever.
+	select {
+	case i.outchan <- *watchResult:
+	case <-i.stopChan:
+	}
 }
 
 func (i *kubeWatcherImpl) getResourceAsJsonString(kind string, obj interface{}) (string, error) {
