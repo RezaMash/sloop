@@ -642,10 +642,12 @@ $(document).ready(function() {
     }
 
     // "Latest" re-anchors the view to the end of recorded data: clear the explicit end
-    // time so the server picks the newest data in the store as the window end
+    // time and resubmit, so the server picks the newest data in the store as the window
+    // end and the box is refilled with it once the data loads
     $('#latest').click(function(){
         sessionStorage.removeItem('selectedEndTime');
         document.getElementById('selectedEndTime').value = '';
+        this.form.submit();
     });
 
 });
